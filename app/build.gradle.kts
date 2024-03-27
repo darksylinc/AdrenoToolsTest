@@ -1,3 +1,5 @@
+import com.android.build.api.dsl.Packaging
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -9,7 +11,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.adrenotoolstest2"
-        minSdk = 30
+        minSdk = 19
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
@@ -22,6 +24,15 @@ android {
         }
         ndk {
             abiFilters.addAll(arrayOf("arm64-v8a"))
+        }
+    }
+
+    packaging {
+        dex {
+            useLegacyPackaging = true
+        }
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 
