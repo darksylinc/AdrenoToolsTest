@@ -3,94 +3,174 @@
 #include <game-activity/GameActivity.cpp>
 #include <game-text-input/gametextinput.cpp>
 
+#include "sds/sds_fstream.h"
+
+#include <sys/stat.h>
+
 #define VK_NO_PROTOTYPES
+#include <dlfcn.h>
 #include <vulkan/vulkan.h>
 #include "adrenotools/include/adrenotools/driver.h"
-#include <dlfcn.h>
+
+void copyFile( const std::string &srcFolder, const std::string &dstFolder )
+{
+	sds::fstream inputFile( srcFolder + "libvulkan_freedreno.so", sds::fstream::InputEnd, false );
+
+	if( inputFile.is_open() )
+	{
+		const size_t sizeBytes = inputFile.getFileSize( false );
+		std::vector<char> fileData;
+		fileData.resize( sizeBytes );
+		inputFile.read( fileData.data(), sizeBytes );
+
+		sds::fstream outputFile( dstFolder + "libvulkan_freedreno.so", sds::fstream::OutputDiscard );
+		if( outputFile.is_open() )
+		{
+			outputFile.write( fileData.data(), sizeBytes );
+		}
+		else
+		{
+			__android_log_print( ANDROID_LOG_ERROR, "DriverReplacer", "Could not write to file %s!\n",
+								 ( dstFolder + "libvulkan_freedreno.so" ).c_str() );
+		}
+	}
+	else
+	{
+		__android_log_print( ANDROID_LOG_ERROR, "DriverReplacer", "Could not open file %s!\n",
+							 ( srcFolder + "libvulkan_freedreno.so" ).c_str() );
+	}
+}
 
 extern "C" {
 
-void replaceDriver(const char *path) {
-    std::string pp = path;
-    void *libVulkan = adrenotools_open_libvulkan(
-            RTLD_NOW | RTLD_LOCAL, ADRENOTOOLS_DRIVER_CUSTOM,
-            path,  //
-            path,                      //
-            path,                      //
-            "libvulkan_freedreno.so", nullptr, nullptr);
-    if (!libVulkan) {
-        if (!libVulkan) {
-            __android_log_print(ANDROID_LOG_INFO, "DriverReplacer",
-                                "Could not load vulkan library : %s!\n", dlerror());
-        }
-    } else {
-        __android_log_print(ANDROID_LOG_INFO, "DriverReplacer", "DRIVER REPLACEMENT LOADED");
-        PFN_vkCreateInstance vkCreateInstance =
-                reinterpret_cast<PFN_vkCreateInstance>( dlsym(libVulkan, "vkCreateInstance"));
-        PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr) dlsym(
-                libVulkan,
-                "vkGetInstanceProcAddr");
+void replaceDriver( const char *path, const char *hooksDir )
+{
+	std::string pp = path;
 
-        vkGetInstanceProcAddr =
-                reinterpret_cast<PFN_vkGetInstanceProcAddr>( dlsym(libVulkan,
-                                                                   "vkGetInstanceProcAddr"));
+	mkdir( ( pp + "temp" ).c_str(), S_IRWXU | S_IRWXG );
 
-        VkApplicationInfo appInfo = {};
-        appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-        appInfo.pApplicationName = "AdrenoToolsExample";
-        appInfo.applicationVersion = 1;
-        appInfo.pEngineName = "AdrenoToolsExample";
-        appInfo.engineVersion = 1;
-        appInfo.apiVersion = VK_API_VERSION_1_0;
+	// String nativeLibDir = getApplicationLibraryDir( appInfo );
+	// std::string nativeLibDir = GetJavaString( env, jNativeLibDir );
 
-        // Create Vulkan instance
-        VkInstanceCreateInfo instanceCreateInfo = {};
-        instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-        instanceCreateInfo.pApplicationInfo = &appInfo;
+	void *libVulkan = adrenotools_open_libvulkan( RTLD_NOW | RTLD_LOCAL, ADRENOTOOLS_DRIVER_CUSTOM,
+												  ( pp + "temp" ).c_str(),  //
+												  hooksDir,                 //
+												  path,                     //
+												  "libvulkan_freedreno.so", nullptr, nullptr );
+	if( !libVulkan )
+	{
+		if( !libVulkan )
+		{
+			__android_log_print( ANDROID_LOG_INFO, "DriverReplacer",
+								 "Could not load vulkan library : %s!\n", dlerror() );
+		}
+	}
+	else
+	{
+		__android_log_print( ANDROID_LOG_INFO, "DriverReplacer", "DRIVER REPLACEMENT LOADED" );
+		PFN_vkCreateInstance vkCreateInstance =
+			reinterpret_cast<PFN_vkCreateInstance>( dlsym( libVulkan, "vkCreateInstance" ) );
+		PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr =
+			(PFN_vkGetInstanceProcAddr)dlsym( libVulkan, "vkGetInstanceProcAddr" );
 
+		vkGetInstanceProcAddr =
+			reinterpret_cast<PFN_vkGetInstanceProcAddr>( dlsym( libVulkan, "vkGetInstanceProcAddr" ) );
 
-        //	PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices = reinterpret_cast<PFN_vkEnumeratePhysicalDevices>(
-        //			vkGetInstanceProcAddr( instance, "vkEnumeratePhysicalDevices" ) );
-        PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices = reinterpret_cast<PFN_vkEnumeratePhysicalDevices>(
-                dlsym(libVulkan, "vkEnumeratePhysicalDevices"));
+		VkApplicationInfo appInfo = {};
+		appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+		appInfo.pApplicationName = "AdrenoToolsExample";
+		appInfo.applicationVersion = 1;
+		appInfo.pEngineName = "AdrenoToolsExample";
+		appInfo.engineVersion = 1;
+		appInfo.apiVersion = VK_API_VERSION_1_0;
 
-        VkInstance instance;
-        vkCreateInstance(&instanceCreateInfo, nullptr, &instance);
+		// Create Vulkan instance
+		VkInstanceCreateInfo instanceCreateInfo = {};
+		instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+		instanceCreateInfo.pApplicationInfo = &appInfo;
 
-        uint32_t numDevices = 1u;
-        vkEnumeratePhysicalDevices(instance, &numDevices, NULL);
-        if (numDevices == 0) {
-            __android_log_print(ANDROID_LOG_ERROR, "DriverReplacer", "NO VK DEVICES!");
-        } else {
-            __android_log_print(ANDROID_LOG_INFO, "DriverReplacer", "YES VK DEVICES!");
-        }
-    }
+		//	PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices =
+		// reinterpret_cast<PFN_vkEnumeratePhysicalDevices>( 			vkGetInstanceProcAddr( instance,
+		//"vkEnumeratePhysicalDevices" ) );
+		PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices =
+			reinterpret_cast<PFN_vkEnumeratePhysicalDevices>(
+				dlsym( libVulkan, "vkEnumeratePhysicalDevices" ) );
+
+		VkInstance instance;
+		vkCreateInstance( &instanceCreateInfo, nullptr, &instance );
+
+		uint32_t numDevices = 1u;
+		vkEnumeratePhysicalDevices( instance, &numDevices, NULL );
+		if( numDevices == 0 )
+		{
+			__android_log_print( ANDROID_LOG_ERROR, "DriverReplacer", "NO VK DEVICES!" );
+		}
+		else
+		{
+			__android_log_print( ANDROID_LOG_INFO, "DriverReplacer", "YES VK DEVICES!" );
+		}
+	}
 }
 
 #include <game-activity/native_app_glue/android_native_app_glue.c>
+}
+
+// THIS FUNCTION MAY LEAK JAVA HANDLES. DO NOT USE IN PRODUCTION.
+std::string getNativeLibraryDir( struct android_app *app )
+{
+	JNIEnv *env = nullptr;
+	app->activity->vm->AttachCurrentThread( &env, nullptr );
+
+	const jclass contextClass = env->GetObjectClass( app->activity->javaGameActivity );
+	const jmethodID getApplicationContextMethod =
+		env->GetMethodID( contextClass, "getApplicationContext", "()Landroid/content/Context;" );
+	const jobject contextObject =
+		env->CallObjectMethod( app->activity->javaGameActivity, getApplicationContextMethod );
+	const jmethodID getApplicationInfoMethod =
+		env->GetMethodID( contextClass, "getApplicationInfo", "()Landroid/content/pm/ApplicationInfo;" );
+	const jobject applicationInfoObject =
+		env->CallObjectMethod( contextObject, getApplicationInfoMethod );
+	const jfieldID nativeLibraryDirField = env->GetFieldID( env->GetObjectClass( applicationInfoObject ),
+															"nativeLibraryDir", "Ljava/lang/String;" );
+	const jobject nativeLibraryDirObject =
+		env->GetObjectField( applicationInfoObject, nativeLibraryDirField );
+	const jmethodID getBytesMethod = env->GetMethodID( env->GetObjectClass( nativeLibraryDirObject ),
+													   "getBytes", "(Ljava/lang/String;)[B" );
+	const auto bytesObject = static_cast<jbyteArray>(
+		env->CallObjectMethod( nativeLibraryDirObject, getBytesMethod, env->NewStringUTF( "UTF-8" ) ) );
+	const size_t length = env->GetArrayLength( bytesObject );
+	const jbyte *const bytes = env->GetByteArrayElements( bytesObject, nullptr );
+	const std::string libDir( reinterpret_cast<const char *>( bytes ), length );
+	app->activity->vm->DetachCurrentThread();
+	return libDir;
+}
+
+extern "C" {
 
 /*!
  * Handles commands sent to this Android application
  * @param pApp the app the commands are coming from
  * @param cmd the command to handle
  */
-void handle_cmd(android_app *pApp, int32_t cmd) {
-    switch (cmd) {
-        case APP_CMD_INIT_WINDOW:
-            // A new window is created, associate a renderer with it. You may replace this with a
-            // "game" class if that suits your needs. Remember to change all instances of userData
-            // if you change the class here as a reinterpret_cast is dangerous this in the
-            // android_main function and the APP_CMD_TERM_WINDOW handler case.
-            break;
-        case APP_CMD_TERM_WINDOW:
-            // The window is being destroyed. Use this to clean up your userData to avoid leaking
-            // resources.
-            //
-            // We have to check if userData is assigned just in case this comes in really quickly
-            break;
-        default:
-            break;
-    }
+void handle_cmd( android_app *pApp, int32_t cmd )
+{
+	switch( cmd )
+	{
+	case APP_CMD_INIT_WINDOW:
+		// A new window is created, associate a renderer with it. You may replace this with a
+		// "game" class if that suits your needs. Remember to change all instances of userData
+		// if you change the class here as a reinterpret_cast is dangerous this in the
+		// android_main function and the APP_CMD_TERM_WINDOW handler case.
+		break;
+	case APP_CMD_TERM_WINDOW:
+		// The window is being destroyed. Use this to clean up your userData to avoid leaking
+		// resources.
+		//
+		// We have to check if userData is assigned just in case this comes in really quickly
+		break;
+	default:
+		break;
+	}
 }
 
 /*!
@@ -102,36 +182,43 @@ void handle_cmd(android_app *pApp, int32_t cmd) {
  * @return true if the event is from a pointer or joystick device,
  *         false for all other input devices.
  */
-bool motion_event_filter_func(const GameActivityMotionEvent *motionEvent) {
-    auto sourceClass = motionEvent->source & AINPUT_SOURCE_CLASS_MASK;
-    return (sourceClass == AINPUT_SOURCE_CLASS_POINTER ||
-            sourceClass == AINPUT_SOURCE_CLASS_JOYSTICK);
+bool motion_event_filter_func( const GameActivityMotionEvent *motionEvent )
+{
+	auto sourceClass = motionEvent->source & AINPUT_SOURCE_CLASS_MASK;
+	return ( sourceClass == AINPUT_SOURCE_CLASS_POINTER || sourceClass == AINPUT_SOURCE_CLASS_JOYSTICK );
 }
 
 /*!
  * This the main entry point for a native activity
  */
-void android_main(struct android_app *pApp) {
-    replaceDriver("/storage/emulated/0/Download/Turnip/Turnip-v22.3.1-R2/");
+void android_main( struct android_app *pApp )
+{
+	copyFile( "/storage/emulated/0/Android/data/com.example.adrenotoolstest2/files/Turnip-v22.3.1-R2/",
+			  "/data/user/0/com.example.adrenotoolstest2/files/" );
+	replaceDriver( "/data/user/0/com.example.adrenotoolstest2/files/",
+				   getNativeLibraryDir( pApp ).c_str() );
 
-    // Register an event handler for Android events
-    pApp->onAppCmd = handle_cmd;
+	// Register an event handler for Android events
+	pApp->onAppCmd = handle_cmd;
 
-    // Set input event filters (set it to NULL if the app wants to process all inputs).
-    // Note that for key inputs, this example uses the default default_key_filter()
-    // implemented in android_native_app_glue.c.
-    android_app_set_motion_event_filter(pApp, motion_event_filter_func);
+	// Set input event filters (set it to NULL if the app wants to process all inputs).
+	// Note that for key inputs, this example uses the default default_key_filter()
+	// implemented in android_native_app_glue.c.
+	android_app_set_motion_event_filter( pApp, motion_event_filter_func );
 
-    // This sets up a typical game/event loop. It will run until the app is destroyed.
-    int events;
-    android_poll_source *pSource;
-    do {
-        // Process all pending events before running game logic.
-        if (ALooper_pollAll(0, nullptr, &events, (void **) &pSource) >= 0) {
-            if (pSource) {
-                pSource->process(pApp, pSource);
-            }
-        }
-    } while (!pApp->destroyRequested);
+	// This sets up a typical game/event loop. It will run until the app is destroyed.
+	int events;
+	android_poll_source *pSource;
+	do
+	{
+		// Process all pending events before running game logic.
+		if( ALooper_pollAll( 0, nullptr, &events, (void **)&pSource ) >= 0 )
+		{
+			if( pSource )
+			{
+				pSource->process( pApp, pSource );
+			}
+		}
+	} while( !pApp->destroyRequested );
 }
 }
