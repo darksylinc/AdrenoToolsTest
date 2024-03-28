@@ -6,6 +6,7 @@ cmake_minimum_required(VERSION 3.22.1)
 project("adrenotoolstest2")
 
 add_subdirectory( adrenotools )
+add_subdirectory( sds_library )
 
 # Creates your game shared library. The name must be the same as the
 # one used for loading in your Kotlin/Java or AndroidManifest.txt files.
@@ -19,6 +20,8 @@ find_package(game-activity REQUIRED CONFIG)
 target_link_libraries(adrenotoolstest2
         # The game activity
         game-activity::game-activity
+
+        sds_library
 
         # EGL and other dependent libraries required for drawing
         # and interacting with Android system
