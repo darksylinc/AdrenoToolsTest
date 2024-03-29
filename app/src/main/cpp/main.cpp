@@ -19,6 +19,7 @@ void copyFile( const std::string &srcFolder, const std::string &dstFolder )
 	if( inputFile.is_open() )
 	{
 		const size_t sizeBytes = inputFile.getFileSize( false );
+		inputFile.seek( 0, sds::fstream::beg );
 		std::vector<char> fileData;
 		fileData.resize( sizeBytes );
 		inputFile.read( fileData.data(), sizeBytes );
@@ -95,6 +96,9 @@ void replaceDriver( const char *path, const char *hooksDir )
 		PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices =
 			reinterpret_cast<PFN_vkEnumeratePhysicalDevices>(
 				dlsym( libVulkan, "vkEnumeratePhysicalDevices" ) );
+		PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties =
+			reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(
+				dlsym( libVulkan, "vkGetPhysicalDeviceProperties" ) );
 
 		VkInstance instance;
 		vkCreateInstance( &instanceCreateInfo, nullptr, &instance );
@@ -108,6 +112,18 @@ void replaceDriver( const char *path, const char *hooksDir )
 		else
 		{
 			__android_log_print( ANDROID_LOG_INFO, "DriverReplacer", "YES VK DEVICES!" );
+
+			std::vector<VkPhysicalDevice> pd;
+			pd.resize( numDevices );
+			vkEnumeratePhysicalDevices( instance, &numDevices, pd.data() );
+
+			for( uint32_t i = 0u; i < numDevices; ++i )
+			{
+				VkPhysicalDeviceProperties deviceProps;
+				vkGetPhysicalDeviceProperties( pd[i], &deviceProps );
+				__android_log_print( ANDROID_LOG_INFO, "DriverReplacer", "Device %i: %s", i,
+									 deviceProps.deviceName );
+			}
 		}
 	}
 }
