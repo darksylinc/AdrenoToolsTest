@@ -42,6 +42,102 @@ void copyFile( const std::string &srcFolder, const std::string &dstFolder, const
 	}
 }
 
+void testVulkan( void *libVulkan )
+{
+	PFN_vkCreateInstance vkCreateInstance =
+		reinterpret_cast<PFN_vkCreateInstance>( dlsym( libVulkan, "vkCreateInstance" ) );
+	PFN_vkDestroyInstance vkDestroyInstance =
+		reinterpret_cast<PFN_vkDestroyInstance>( dlsym( libVulkan, "vkDestroyInstance" ) );
+	PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr =
+		reinterpret_cast<PFN_vkGetInstanceProcAddr>( dlsym( libVulkan, "vkGetInstanceProcAddr" ) );
+
+	VkApplicationInfo appInfo = {};
+	appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+	appInfo.pApplicationName = "AdrenoToolsExample";
+	appInfo.applicationVersion = 1;
+	appInfo.pEngineName = "AdrenoToolsExample";
+	appInfo.engineVersion = 1;
+	appInfo.apiVersion = VK_API_VERSION_1_0;
+
+	// Create Vulkan instance
+	VkInstanceCreateInfo instanceCreateInfo = {};
+	instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+	instanceCreateInfo.pApplicationInfo = &appInfo;
+
+	//	PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices =
+	// reinterpret_cast<PFN_vkEnumeratePhysicalDevices>( 			vkGetInstanceProcAddr( instance,
+	//"vkEnumeratePhysicalDevices" ) );
+	PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices =
+		reinterpret_cast<PFN_vkEnumeratePhysicalDevices>(
+			dlsym( libVulkan, "vkEnumeratePhysicalDevices" ) );
+	PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties =
+		reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(
+			dlsym( libVulkan, "vkGetPhysicalDeviceProperties" ) );
+
+	VkInstance instance;
+	vkCreateInstance( &instanceCreateInfo, nullptr, &instance );
+
+	uint32_t numDevices = 1u;
+	vkEnumeratePhysicalDevices( instance, &numDevices, NULL );
+	if( numDevices == 0 )
+	{
+		__android_log_print( ANDROID_LOG_ERROR, "DriverReplacer", "NO VK DEVICES!" );
+	}
+	else
+	{
+		__android_log_print( ANDROID_LOG_INFO, "DriverReplacer", "YES VK DEVICES!" );
+
+		std::vector<VkPhysicalDevice> pd;
+		pd.resize( numDevices );
+		vkEnumeratePhysicalDevices( instance, &numDevices, pd.data() );
+
+		for( uint32_t i = 0u; i < numDevices; ++i )
+		{
+			VkPhysicalDeviceProperties deviceProps;
+			vkGetPhysicalDeviceProperties( pd[i], &deviceProps );
+
+			// Generic version routine that matches SaschaWillems's VulkanCapsViewer
+			const uint32_t driverVersionMajor = ( deviceProps.driverVersion >> 22u ) & 0x3ff;
+			const uint32_t driverVersionMinor = ( deviceProps.driverVersion >> 12u ) & 0x3ff;
+			const uint32_t driverVersionRelease = ( deviceProps.driverVersion ) & 0xfff;
+
+			__android_log_print( ANDROID_LOG_INFO, "DriverReplacer",
+								 "Device %i: %s.\n"
+								 "Vulkan API %i.%i.%i\n"
+								 "Driver Version: %i.%i.%i (%u)",
+								 i, deviceProps.deviceName,  //
+								 VK_API_VERSION_MAJOR( deviceProps.apiVersion ),
+								 VK_API_VERSION_MINOR( deviceProps.apiVersion ),
+								 VK_API_VERSION_PATCH( deviceProps.apiVersion ),  //
+								 driverVersionMajor, driverVersionMinor, driverVersionRelease,
+								 deviceProps.driverVersion );
+		}
+	}
+
+	vkDestroyInstance( instance, nullptr );
+	instance = 0;
+}
+
+void loadOriginalVulkan()
+{
+	void *module = dlopen( "libvulkan.so.1", RTLD_NOW | RTLD_LOCAL );
+	if( !module )
+		module = dlopen( "libvulkan.so", RTLD_NOW | RTLD_LOCAL );
+	if( !module )
+	{
+		__android_log_print( ANDROID_LOG_ERROR, "DriverReplacer",
+							 "Could not open original Vulkan: %s!\n", dlerror() );
+		return;
+	}
+
+	__android_log_print( ANDROID_LOG_INFO, "DriverReplacer",
+						 "====== START TESTING ORIGINAL VULKAN DRIVER ======" );
+	testVulkan( module );
+	__android_log_print( ANDROID_LOG_INFO, "DriverReplacer",
+						 "====== END TESTING ORIGINAL VULKAN DRIVER ======" );
+	dlclose( module );
+}
+
 void replaceDriver( const char *path, const char *hooksDir, const char *driverName )
 {
 	std::string pp = path;
@@ -60,83 +156,14 @@ void replaceDriver( const char *path, const char *hooksDir, const char *driverNa
 	{
 		if( !libVulkan )
 		{
-			__android_log_print( ANDROID_LOG_INFO, "DriverReplacer",
+			__android_log_print( ANDROID_LOG_ERROR, "DriverReplacer",
 								 "Could not load vulkan library : %s!\n", dlerror() );
 		}
 	}
 	else
 	{
 		__android_log_print( ANDROID_LOG_INFO, "DriverReplacer", "DRIVER REPLACEMENT LOADED" );
-		PFN_vkCreateInstance vkCreateInstance =
-			reinterpret_cast<PFN_vkCreateInstance>( dlsym( libVulkan, "vkCreateInstance" ) );
-		PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr =
-			(PFN_vkGetInstanceProcAddr)dlsym( libVulkan, "vkGetInstanceProcAddr" );
-
-		vkGetInstanceProcAddr =
-			reinterpret_cast<PFN_vkGetInstanceProcAddr>( dlsym( libVulkan, "vkGetInstanceProcAddr" ) );
-
-		VkApplicationInfo appInfo = {};
-		appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-		appInfo.pApplicationName = "AdrenoToolsExample";
-		appInfo.applicationVersion = 1;
-		appInfo.pEngineName = "AdrenoToolsExample";
-		appInfo.engineVersion = 1;
-		appInfo.apiVersion = VK_API_VERSION_1_0;
-
-		// Create Vulkan instance
-		VkInstanceCreateInfo instanceCreateInfo = {};
-		instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-		instanceCreateInfo.pApplicationInfo = &appInfo;
-
-		//	PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices =
-		// reinterpret_cast<PFN_vkEnumeratePhysicalDevices>( 			vkGetInstanceProcAddr( instance,
-		//"vkEnumeratePhysicalDevices" ) );
-		PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices =
-			reinterpret_cast<PFN_vkEnumeratePhysicalDevices>(
-				dlsym( libVulkan, "vkEnumeratePhysicalDevices" ) );
-		PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties =
-			reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(
-				dlsym( libVulkan, "vkGetPhysicalDeviceProperties" ) );
-
-		VkInstance instance;
-		vkCreateInstance( &instanceCreateInfo, nullptr, &instance );
-
-		uint32_t numDevices = 1u;
-		vkEnumeratePhysicalDevices( instance, &numDevices, NULL );
-		if( numDevices == 0 )
-		{
-			__android_log_print( ANDROID_LOG_ERROR, "DriverReplacer", "NO VK DEVICES!" );
-		}
-		else
-		{
-			__android_log_print( ANDROID_LOG_INFO, "DriverReplacer", "YES VK DEVICES!" );
-
-			std::vector<VkPhysicalDevice> pd;
-			pd.resize( numDevices );
-			vkEnumeratePhysicalDevices( instance, &numDevices, pd.data() );
-
-			for( uint32_t i = 0u; i < numDevices; ++i )
-			{
-				VkPhysicalDeviceProperties deviceProps;
-				vkGetPhysicalDeviceProperties( pd[i], &deviceProps );
-
-				// Generic version routine that matches SaschaWillems's VulkanCapsViewer
-				const uint32_t driverVersionMajor = ( deviceProps.driverVersion >> 22u ) & 0x3ff;
-				const uint32_t driverVersionMinor = ( deviceProps.driverVersion >> 12u ) & 0x3ff;
-				const uint32_t driverVersionRelease = ( deviceProps.driverVersion ) & 0xfff;
-
-				__android_log_print( ANDROID_LOG_INFO, "DriverReplacer",
-									 "Device %i: %s.\n"
-									 "Vulkan API %i.%i.%i\n"
-									 "Driver Version: %i.%i.%i (%u)",
-									 i, deviceProps.deviceName,  //
-									 VK_API_VERSION_MAJOR( deviceProps.apiVersion ),
-									 VK_API_VERSION_MINOR( deviceProps.apiVersion ),
-									 VK_API_VERSION_PATCH( deviceProps.apiVersion ),  //
-									 driverVersionMajor, driverVersionMinor, driverVersionRelease,
-									 deviceProps.driverVersion );
-			}
-		}
+		testVulkan( libVulkan );
 	}
 }
 
@@ -231,6 +258,7 @@ void android_main( struct android_app *pApp )
 	copyFile( srcFolder, dstFolder, "notgsl.so" );
 	copyFile( srcFolder, dstFolder, "notllvm-glnext.so" );
 	copyFile( srcFolder, dstFolder, "notllvm-qgl.so" );*/
+	loadOriginalVulkan();
 	copyFile( srcFolder, dstFolder, "vulkan.msm8937_custom.so" );
 	replaceDriver( dstFolder, getNativeLibraryDir( pApp ).c_str(), "vulkan.msm8937_custom.so" );
 
