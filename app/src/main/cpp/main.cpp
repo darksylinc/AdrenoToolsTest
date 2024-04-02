@@ -12,9 +12,9 @@
 #include <vulkan/vulkan.h>
 #include "adrenotools/include/adrenotools/driver.h"
 
-void copyFile( const std::string &srcFolder, const std::string &dstFolder )
+void copyFile( const std::string &srcFolder, const std::string &dstFolder, const char *filename )
 {
-	sds::fstream inputFile( srcFolder + "libvulkan_freedreno.so", sds::fstream::InputEnd, false );
+	sds::fstream inputFile( srcFolder + filename, sds::fstream::InputEnd, false );
 
 	if( inputFile.is_open() )
 	{
@@ -24,7 +24,7 @@ void copyFile( const std::string &srcFolder, const std::string &dstFolder )
 		fileData.resize( sizeBytes );
 		inputFile.read( fileData.data(), sizeBytes );
 
-		sds::fstream outputFile( dstFolder + "libvulkan_freedreno.so", sds::fstream::OutputDiscard );
+		sds::fstream outputFile( dstFolder + filename, sds::fstream::OutputDiscard );
 		if( outputFile.is_open() )
 		{
 			outputFile.write( fileData.data(), sizeBytes );
@@ -32,19 +32,17 @@ void copyFile( const std::string &srcFolder, const std::string &dstFolder )
 		else
 		{
 			__android_log_print( ANDROID_LOG_ERROR, "DriverReplacer", "Could not write to file %s!\n",
-								 ( dstFolder + "libvulkan_freedreno.so" ).c_str() );
+								 ( dstFolder + filename ).c_str() );
 		}
 	}
 	else
 	{
 		__android_log_print( ANDROID_LOG_ERROR, "DriverReplacer", "Could not open file %s!\n",
-							 ( srcFolder + "libvulkan_freedreno.so" ).c_str() );
+							 ( srcFolder + filename ).c_str() );
 	}
 }
 
-extern "C" {
-
-void replaceDriver( const char *path, const char *hooksDir )
+void replaceDriver( const char *path, const char *hooksDir, const char *driverName )
 {
 	std::string pp = path;
 
@@ -57,7 +55,7 @@ void replaceDriver( const char *path, const char *hooksDir )
 												  ( pp + "temp" ).c_str(),  //
 												  hooksDir,                 //
 												  path,                     //
-												  "libvulkan_freedreno.so", nullptr, nullptr );
+												  driverName, nullptr, nullptr );
 	if( !libVulkan )
 	{
 		if( !libVulkan )
@@ -121,13 +119,28 @@ void replaceDriver( const char *path, const char *hooksDir )
 			{
 				VkPhysicalDeviceProperties deviceProps;
 				vkGetPhysicalDeviceProperties( pd[i], &deviceProps );
-				__android_log_print( ANDROID_LOG_INFO, "DriverReplacer", "Device %i: %s", i,
-									 deviceProps.deviceName );
+
+				// Generic version routine that matches SaschaWillems's VulkanCapsViewer
+				const uint32_t driverVersionMajor = ( deviceProps.driverVersion >> 22u ) & 0x3ff;
+				const uint32_t driverVersionMinor = ( deviceProps.driverVersion >> 12u ) & 0x3ff;
+				const uint32_t driverVersionRelease = ( deviceProps.driverVersion ) & 0xfff;
+
+				__android_log_print( ANDROID_LOG_INFO, "DriverReplacer",
+									 "Device %i: %s.\n"
+									 "Vulkan API %i.%i.%i\n"
+									 "Driver Version: %i.%i.%i (%u)",
+									 i, deviceProps.deviceName,  //
+									 VK_API_VERSION_MAJOR( deviceProps.apiVersion ),
+									 VK_API_VERSION_MINOR( deviceProps.apiVersion ),
+									 VK_API_VERSION_PATCH( deviceProps.apiVersion ),  //
+									 driverVersionMajor, driverVersionMinor, driverVersionRelease,
+									 deviceProps.driverVersion );
 			}
 		}
 	}
 }
 
+extern "C" {
 #include <game-activity/native_app_glue/android_native_app_glue.c>
 }
 
@@ -209,10 +222,17 @@ bool motion_event_filter_func( const GameActivityMotionEvent *motionEvent )
  */
 void android_main( struct android_app *pApp )
 {
-	copyFile( "/storage/emulated/0/Android/data/com.example.adrenotoolstest2/files/Turnip-v22.3.1-R2/",
-			  "/data/user/0/com.example.adrenotoolstest2/files/" );
-	replaceDriver( "/data/user/0/com.example.adrenotoolstest2/files/",
-				   getNativeLibraryDir( pApp ).c_str() );
+	const char *srcFolder =
+		"/storage/emulated/0/Android/data/com.example.adrenotoolstest2/files/Adreno505/";
+	const char *dstFolder = "/data/user/0/com.example.adrenotoolstest2/files/";
+
+	/*copyFile( srcFolder, dstFolder, "notadreno_utils.so" );
+	copyFile( srcFolder, dstFolder, "notdmabufheap.so" );
+	copyFile( srcFolder, dstFolder, "notgsl.so" );
+	copyFile( srcFolder, dstFolder, "notllvm-glnext.so" );
+	copyFile( srcFolder, dstFolder, "notllvm-qgl.so" );*/
+	copyFile( srcFolder, dstFolder, "vulkan.msm8937_custom.so" );
+	replaceDriver( dstFolder, getNativeLibraryDir( pApp ).c_str(), "vulkan.msm8937_custom.so" );
 
 	// Register an event handler for Android events
 	pApp->onAppCmd = handle_cmd;
