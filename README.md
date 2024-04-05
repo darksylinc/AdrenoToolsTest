@@ -29,3 +29,11 @@ In some rare cases, your Android distro may block access to that path so you'll 
 
 Open `build.gradle.kts` in Android Studio and build it.
 I'm using Android Studio 2023.1.1 Patch 2.
+
+# I don't see anything! It's a black screen!
+
+This project does NOT render anything.
+
+It simply dumps success / error and other diagnostic information (such as driver name and version as reported by Vulkan) to logcat and then runs indefinitely doing nothing.
+
+This project aims to be as simple as possible to test libadrenotools.
