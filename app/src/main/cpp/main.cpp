@@ -196,32 +196,35 @@ extern "C" {
 #include <game-activity/native_app_glue/android_native_app_glue.c>
 }
 
-// THIS FUNCTION MAY LEAK JAVA HANDLES. DO NOT USE IN PRODUCTION.
 std::string getNativeLibraryDir( struct android_app *app )
 {
 	JNIEnv *env = nullptr;
 	app->activity->vm->AttachCurrentThread( &env, nullptr );
 
-	const jclass contextClass = env->GetObjectClass( app->activity->javaGameActivity );
+	jclass contextClassDef = env->GetObjectClass( app->activity->javaGameActivity );
 	const jmethodID getApplicationContextMethod =
-		env->GetMethodID( contextClass, "getApplicationContext", "()Landroid/content/Context;" );
-	const jobject contextObject =
+		env->GetMethodID( contextClassDef, "getApplicationContext", "()Landroid/content/Context;" );
+	const jmethodID getApplicationInfoMethod = env->GetMethodID(
+		contextClassDef, "getApplicationInfo", "()Landroid/content/pm/ApplicationInfo;" );
+	jobject contextObject =
 		env->CallObjectMethod( app->activity->javaGameActivity, getApplicationContextMethod );
-	const jmethodID getApplicationInfoMethod =
-		env->GetMethodID( contextClass, "getApplicationInfo", "()Landroid/content/pm/ApplicationInfo;" );
-	const jobject applicationInfoObject =
-		env->CallObjectMethod( contextObject, getApplicationInfoMethod );
-	const jfieldID nativeLibraryDirField = env->GetFieldID( env->GetObjectClass( applicationInfoObject ),
-															"nativeLibraryDir", "Ljava/lang/String;" );
-	const jobject nativeLibraryDirObject =
-		env->GetObjectField( applicationInfoObject, nativeLibraryDirField );
-	const jmethodID getBytesMethod = env->GetMethodID( env->GetObjectClass( nativeLibraryDirObject ),
-													   "getBytes", "(Ljava/lang/String;)[B" );
-	const auto bytesObject = static_cast<jbyteArray>(
-		env->CallObjectMethod( nativeLibraryDirObject, getBytesMethod, env->NewStringUTF( "UTF-8" ) ) );
-	const size_t length = env->GetArrayLength( bytesObject );
-	const jbyte *const bytes = env->GetByteArrayElements( bytesObject, nullptr );
-	const std::string libDir( reinterpret_cast<const char *>( bytes ), length );
+	jobject applicationInfoObject = env->CallObjectMethod( contextObject, getApplicationInfoMethod );
+	jclass applicationInfoObjectDef = env->GetObjectClass( applicationInfoObject );
+	const jfieldID nativeLibraryDirField =
+		env->GetFieldID( applicationInfoObjectDef, "nativeLibraryDir", "Ljava/lang/String;" );
+
+	jstring nativeLibraryDirJStr =
+		(jstring)env->GetObjectField( applicationInfoObject, nativeLibraryDirField );
+	const char *textCStr = env->GetStringUTFChars( nativeLibraryDirJStr, nullptr );
+	const std::string libDir = textCStr;
+	env->ReleaseStringUTFChars( nativeLibraryDirJStr, textCStr );
+
+	env->DeleteLocalRef( nativeLibraryDirJStr );
+	env->DeleteLocalRef( applicationInfoObjectDef );
+	env->DeleteLocalRef( applicationInfoObject );
+	env->DeleteLocalRef( contextObject );
+	env->DeleteLocalRef( contextClassDef );
+
 	app->activity->vm->DetachCurrentThread();
 	return libDir;
 }
@@ -290,6 +293,15 @@ void android_main( struct android_app *pApp )
 	if( !dstFolder.empty() && dstFolder.back() != '/' )
 		dstFolder.push_back( '/' );
 
+	const std::string nativeLibraryDir = getNativeLibraryDir( pApp );
+
+	__android_log_print( ANDROID_LOG_INFO, "DriverReplacer",
+						 "Folders:\n"
+						 "SRC folder: %s\n"
+						 "DST folder: %s\n"
+						 "JNI libdir: %s\n",
+						 srcFolder.c_str(), dstFolder.c_str(), nativeLibraryDir.c_str() );
+
 #ifdef USE_QUALCOMM_DRIVER
 #	if 0
 	// Failed attempt at getting PowerVR to work.
@@ -325,7 +337,7 @@ void android_main( struct android_app *pApp )
 
 	loadOriginalVulkan();
 	copyFile( srcFolder, dstFolder, vulkanLibName );
-	replaceDriver( dstFolder, getNativeLibraryDir( pApp ).c_str(), vulkanLibName );
+	replaceDriver( dstFolder, nativeLibraryDir.c_str(), vulkanLibName );
 
 	// Register an event handler for Android events
 	pApp->onAppCmd = handle_cmd;
