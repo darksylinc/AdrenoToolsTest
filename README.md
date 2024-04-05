@@ -1,14 +1,29 @@
-# Test to check AdrenoTools
+# Test example to check AdrenoTools
 
-**WARNING:** This test is NOT working.
+The important bits are in [main.cpp](app/src/main/cpp/main.cpp):
 
-The code calls `replaceDriver("/storage/emulated/0/Download/Turnip/Turnip-v22.3.1-R2/");` with a hardcoded path and assumes the driver is called `libvulkan_freedreno.so` (which you can change in `replaceDriver`). Change them if you have to.
+```cpp
+// #define USE_QUALCOMM_DRIVER
+const char *srcFolder = pApp->activity->externalDataPath;
+const char *dstFolder = pApp->activity->internalDataPath;
+#ifndef USE_QUALCOMM_DRIVER
+	const char *vulkanLibName = "libvulkan_freedreno.so";
+#else
+	const char *vulkanLibName = "vulkan.ad0667.so";
+#endif
+```
 
-Right now it doesn't work because no matter what I do; I always get:
+Uncomment `#define USE_QUALCOMM_DRIVER` to use the (un)official drivers from Qualcomm.
+Leave it commented to use Turnip instead.
 
-> NO VK DEVICES!
+You may have to modify the hardcoded filenames if you have to.
 
-I know that it is supposed to work fine on my phone because PPSSPP manages to load the driver fine, reports a different driver string and even displays graphical glitches when using this other driver.
+**The code expects you to manually unzip the driver into `/storage/emulated/0/Android/data/com.example.adrenotoolstest2/files/`.**
+
+**You will first have to install the app (i.e. run it once), it will fail. And now that `/storage/emulated/0/Android/data/com.example.adrenotoolstest2/files/` has been created, you can put the driver files there.**
+
+In most Android distros, you can access it via USB storage from the computer and sometimes via the Files app.
+In some rare cases, your Android distro may block access to that path so you'll have to use another folder and modify the source code a little bit.
 
 # Build instructions
 

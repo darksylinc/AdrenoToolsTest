@@ -12,6 +12,18 @@
 #include <vulkan/vulkan.h>
 #include "adrenotools/include/adrenotools/driver.h"
 
+/** Copies a file from one folder into another. Dst folder must exist.
+	e.g.
+		/src/folder/my_file.jpg
+		/dst/folder/my_file.jpg
+@param srcFolder
+	Source folder e.g. "/src/folder/"
+@param dstFolder
+	Destination folder e.g. "/dst/folder/"
+	Folder must exist.
+@param filename
+	Name of the file to copy. e.g. "my_file.jpg"
+*/
 void copyFile( const std::string &srcFolder, const std::string &dstFolder, const char *filename )
 {
 	sds::fstream inputFile( srcFolder + filename, sds::fstream::InputEnd, false );
@@ -42,14 +54,19 @@ void copyFile( const std::string &srcFolder, const std::string &dstFolder, const
 	}
 }
 
+/** Opens the handle to the vulkan library and loads a VkInstance and dumps driver information.
+	VkInstance is destroyed before return.
+@param libVulkan
+	Handle to Vulkan so.
+*/
 void testVulkan( void *libVulkan )
 {
 	PFN_vkCreateInstance vkCreateInstance =
 		reinterpret_cast<PFN_vkCreateInstance>( dlsym( libVulkan, "vkCreateInstance" ) );
 	PFN_vkDestroyInstance vkDestroyInstance =
 		reinterpret_cast<PFN_vkDestroyInstance>( dlsym( libVulkan, "vkDestroyInstance" ) );
-	PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr =
-		reinterpret_cast<PFN_vkGetInstanceProcAddr>( dlsym( libVulkan, "vkGetInstanceProcAddr" ) );
+	/*PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr =
+		reinterpret_cast<PFN_vkGetInstanceProcAddr>( dlsym( libVulkan, "vkGetInstanceProcAddr" ) );*/
 
 	VkApplicationInfo appInfo = {};
 	appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -118,6 +135,7 @@ void testVulkan( void *libVulkan )
 	instance = 0;
 }
 
+/// Loads Vulkan "the proper way".
 void loadOriginalVulkan()
 {
 	void *module = dlopen( "libvulkan.so.1", RTLD_NOW | RTLD_LOCAL );
@@ -138,19 +156,26 @@ void loadOriginalVulkan()
 	dlclose( module );
 }
 
-void replaceDriver( const char *path, const char *hooksDir, const char *driverName )
+/** Loads Vulkan using driver injection.
+@param path
+	Folder where the *.so of driverName is stored in.
+	This path must be internal to the app, otherwise there will be permission errors.
+@param hooksDir
+	This folder MUST be the one returned by getNativeLibraryDir().
+@param driverName
+	Name of the driver library, e.g. "libvulkan_freedreno.so", "vulkan.msm8937.so", etc.
+*/
+void replaceDriver( const std::string &path, const char *hooksDir, const char *driverName )
 {
-	std::string pp = path;
-
-	mkdir( ( pp + "temp" ).c_str(), S_IRWXU | S_IRWXG );
+	mkdir( ( path + "temp" ).c_str(), S_IRWXU | S_IRWXG );
 
 	// String nativeLibDir = getApplicationLibraryDir( appInfo );
 	// std::string nativeLibDir = GetJavaString( env, jNativeLibDir );
 
 	void *libVulkan = adrenotools_open_libvulkan( RTLD_NOW | RTLD_LOCAL, ADRENOTOOLS_DRIVER_CUSTOM,
-												  ( pp + "temp" ).c_str(),  //
-												  hooksDir,                 //
-												  path,                     //
+												  ( path + "temp" ).c_str(),  //
+												  hooksDir,                   //
+												  path.c_str(),               //
 												  driverName, nullptr, nullptr );
 	if( !libVulkan )
 	{
@@ -249,18 +274,58 @@ bool motion_event_filter_func( const GameActivityMotionEvent *motionEvent )
  */
 void android_main( struct android_app *pApp )
 {
-	const char *srcFolder =
-		"/storage/emulated/0/Android/data/com.example.adrenotoolstest2/files/Adreno505/";
-	const char *dstFolder = "/data/user/0/com.example.adrenotoolstest2/files/";
+	//#define USE_QUALCOMM_DRIVER
+	// std::string srcFolder = "/storage/emulated/0/Android/data/com.example.adrenotoolstest2/files/";
+	// std::string dstFolder = "/data/user/0/com.example.adrenotoolstest2/files/";
+	std::string srcFolder = pApp->activity->externalDataPath ? pApp->activity->externalDataPath : "";
+	std::string dstFolder = pApp->activity->internalDataPath ? pApp->activity->internalDataPath : "";
+#ifndef USE_QUALCOMM_DRIVER
+	const char *vulkanLibName = "libvulkan_freedreno.so";
+#else
+	const char *vulkanLibName = "vulkan.ad0667.so";
+#endif
 
-	/*copyFile( srcFolder, dstFolder, "notadreno_utils.so" );
-	copyFile( srcFolder, dstFolder, "notdmabufheap.so" );
-	copyFile( srcFolder, dstFolder, "notgsl.so" );
-	copyFile( srcFolder, dstFolder, "notllvm-glnext.so" );
-	copyFile( srcFolder, dstFolder, "notllvm-qgl.so" );*/
+	if( !srcFolder.empty() && srcFolder.back() != '/' )
+		srcFolder.push_back( '/' );
+	if( !dstFolder.empty() && dstFolder.back() != '/' )
+		dstFolder.push_back( '/' );
+
+#ifdef USE_QUALCOMM_DRIVER
+#	if 0
+	// Failed attempt at getting PowerVR to work.
+	const char *filesToCopy[] = { "libEGL_powervr.so",    "libGLESv1_CM_powervr.so",
+								  "libGLESv2_powervr.so", "libglslcompiler.so",
+								  "libIMGegl.so",         "libsrv_um.so",
+								  "libufwriter.so",       "libusc.so" };
+#	endif
+#	if 1
+	// Vulkan drivers from Qualcomm. i.e. v667-patched-adpkg.zip.
+	const char *filesToCopy[] = { "notadreno_utils.so", "notdmabufheap.so", "notgsl.so",
+								  "notllvm-glnext.so", "notllvm-qgl.so" };
+#	endif
+
+	for( size_t i = 0u; i < sizeof( filesToCopy ) / sizeof( filesToCopy[0] ); ++i )
+		copyFile( srcFolder, dstFolder, filesToCopy[i] );
+
+	for( size_t i = 0u; i < sizeof( filesToCopy ) / sizeof( filesToCopy[0] ); ++i )
+	{
+		void *lib =
+			dlopen( ( std::string( dstFolder ) + filesToCopy[i] ).c_str(), RTLD_NOW | RTLD_LOCAL );
+		if( !lib )
+		{
+			__android_log_print( ANDROID_LOG_ERROR, "DriverReplacer", "Could not load %s!. Reason: %s",
+								 filesToCopy[i], dlerror() );
+		}
+		else
+		{
+			__android_log_print( ANDROID_LOG_INFO, "DriverReplacer", "Loaded %s!", filesToCopy[i] );
+		}
+	}
+#endif
+
 	loadOriginalVulkan();
-	copyFile( srcFolder, dstFolder, "vulkan.msm8937_custom.so" );
-	replaceDriver( dstFolder, getNativeLibraryDir( pApp ).c_str(), "vulkan.msm8937_custom.so" );
+	copyFile( srcFolder, dstFolder, vulkanLibName );
+	replaceDriver( dstFolder, getNativeLibraryDir( pApp ).c_str(), vulkanLibName );
 
 	// Register an event handler for Android events
 	pApp->onAppCmd = handle_cmd;
